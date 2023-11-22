@@ -26,6 +26,7 @@ import (
 	local "github.com/dremio/dremio-diagnostic-collector/cmd/local"
 	"github.com/dremio/dremio-diagnostic-collector/cmd/local/conf"
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/collection"
+	"github.com/dremio/dremio-diagnostic-collector/cmd/root/docker"
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/helpers"
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/kubernetes"
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/ssh"
@@ -51,9 +52,21 @@ var ddcYamlLoc string
 var outputLoc string
 
 var kubectlPath string
-var isK8s bool
 var sudoUser string
 var namespace string
+
+var dockerPath string
+
+type usedMode int
+
+const (	 
+	SSH usedMode = iota
+	k8s
+	d4r
+)
+
+var modeUsedForCollecting int
+
 
 // var isEmbeddedK8s bool
 // var isEmbeddedSSH bool
@@ -81,8 +94,8 @@ To sample job profiles and collect system tables information, kv reports, and Wo
 	},
 }
 
-func RemoteCollect(collectionArgs collection.Args, sshArgs ssh.Args, kubeArgs kubernetes.KubeArgs, k8sEnabled bool) error {
-	err := validateParameters(collectionArgs, sshArgs, k8sEnabled)
+func RemoteCollect(collectionArgs collection.Args, sshArgs ssh.Args, kubeArgs kubernetes.KubeArgs,dockerArgs docker.DockerArgs, modeUsedForCollecting usedMode) error {
+	err := validateParameters(collectionArgs, sshArgs,dockerArgs, modeUsedForCollecting)
 	if err != nil {
 		fmt.Println("COMMAND HELP TEXT:")
 		fmt.Println("")
@@ -100,7 +113,11 @@ func RemoteCollect(collectionArgs collection.Args, sshArgs ssh.Args, kubeArgs ku
 	}
 	var clusterCollect = func([]string) {}
 	var collectorStrategy collection.Collector
-	if k8sEnabled {
+	switch(modeUsedForCollecting){
+	case SSH:
+		simplelog.Info("using SSH based collection")
+		collectorStrategy = ssh.NewCmdSSHActions(sshArgs)
+	case k8s:
 		simplelog.Info("using Kubernetes kubectl based collection")
 		collectorStrategy = kubernetes.NewKubectlK8sActions(kubeArgs)
 		clusterCollect = func(pods []string) {
@@ -113,9 +130,9 @@ func RemoteCollect(collectionArgs collection.Args, sshArgs ssh.Args, kubeArgs ku
 				simplelog.Errorf("when getting container logs, the following error was returned: %v", err)
 			}
 		}
-	} else {
-		simplelog.Info("using SSH based collection")
-		collectorStrategy = ssh.NewCmdSSHActions(sshArgs)
+	case d4r:
+		simplelog.Info("using docker based collection")
+		collectorStrategy = docker.NewDockerExecActions(dockerArgs)
 	}
 
 	// Launch the collection
@@ -201,7 +218,10 @@ func Execute(args []string) {
 			ExecutorsContainer:   executorsContainer,
 			KubectlPath:          kubectlPath,
 		}
-		if err := RemoteCollect(collectionArgs, sshArgs, kubeArgs, isK8s); err != nil {
+		dockerArgs := docker.DockerArgs{
+			DockerPath: dockerPath,
+		}
+		if err := RemoteCollect(collectionArgs, sshArgs, kubeArgs,dockerArgs, usedMode(modeUsedForCollecting)); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -234,6 +254,7 @@ func sshDefault() (string, error) {
 func init() {
 	// command line flags
 
+
 	RootCmd.Flags().StringVar(&coordinatorContainer, "coordinator-container", "dremio-master-coordinator,dremio-coordinator", "for use with -k8s flag: sets the container name to use to retrieve logs in the coordinators")
 	RootCmd.Flags().StringVar(&executorsContainer, "executors-container", "dremio-executor", "for use with -k8s flag: sets the container name to use to retrieve logs in the executors")
 	RootCmd.Flags().StringVarP(&coordinatorStr, "coordinator", "c", "", "coordinator to connect to for collection. With ssh set a list of ip addresses separated by commas. In K8s use a label that matches to the pod(s).")
@@ -242,11 +263,14 @@ func init() {
 	RootCmd.Flags().StringVarP(&sshUser, "ssh-user", "u", "", "user to use during ssh operations to login")
 	RootCmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace to use for kubernetes pods")
 	RootCmd.Flags().StringVarP(&kubectlPath, "kubectl-path", "p", "kubectl", "where to find kubectl")
-	RootCmd.Flags().BoolVarP(&isK8s, "k8s", "k", false, "use kubernetes to retrieve the diagnostics instead of ssh, instead of hosts pass in labels to the --coordinator and --executors flags")
+	RootCmd.Flags().StringVarP(&dockerPath, "docker-path", "d", "docker", "where to find docker")
+	RootCmd.Flags().IntVarP(&modeUsedForCollecting, "mode", "m", 0, "use kubernetes to retrieve the diagnostics instead of ssh, instead of hosts pass in labels to the --coordinator and --executors flags")
 	RootCmd.Flags().BoolVarP(&promptForDremioPAT, "dremio-pat-prompt", "t", false, "Prompt for Dremio Personal Access Token (PAT)")
 	RootCmd.Flags().StringVarP(&sudoUser, "sudo-user", "b", "", "if any diagnostics commands need a sudo user (i.e. for jcmd)")
 	RootCmd.Flags().StringVar(&transferDir, "transfer-dir", "/tmp/ddc", "directory to use for communication between the local-collect command and this one")
 	RootCmd.Flags().StringVar(&outputLoc, "output-file", "diag.tgz", "name of tgz file to save the diagnostic collection to")
+
+
 	execLoc, err := os.Executable()
 	if err != nil {
 		fmt.Printf("unable to find ddc, critical error %v", err)
@@ -261,21 +285,27 @@ func init() {
 	RootCmd.AddCommand(awselogs.AWSELogsCmd)
 }
 
-func validateParameters(args collection.Args, sshArgs ssh.Args, isK8s bool) error {
+func validateParameters(args collection.Args, sshArgs ssh.Args,dockerArgs docker.DockerArgs, modeUsedForCollecting usedMode) error {
 	if args.CoordinatorStr == "" {
-		if isK8s {
+		switch(modeUsedForCollecting){
+		case SSH:
+			return errors.New("the coordinator string was empty you must pass a single host or a comma separated lists of hosts to --coordinator or -c arguments. Example: -e 192.168.64.12,192.168.65.10")
+		case k8s,d4r:
 			return errors.New("the coordinator string was empty you must pass a label that will match your coordinators --coordinator or -c arguments. Example: -c \"mylabel=coordinator\"")
 		}
-		return errors.New("the coordinator string was empty you must pass a single host or a comma separated lists of hosts to --coordinator or -c arguments. Example: -e 192.168.64.12,192.168.65.10")
+		
 	}
 	if args.ExecutorsStr == "" {
-		if isK8s {
+		switch(modeUsedForCollecting){
+		case SSH:
+			return errors.New("the executor string was empty you must pass a single host or a comma separated lists of hosts to --executor or -e arguments. Example: -e 192.168.64.12,192.168.65.10")
+		case k8s,d4r:
 			return errors.New("the executor string was empty you must pass a label that will match your executors --executor or -e arguments. Example: -e \"mylabel=executor\"")
-		}
-		return errors.New("the executor string was empty you must pass a single host or a comma separated lists of hosts to --executor or -e arguments. Example: -e 192.168.64.12,192.168.65.10")
+			
+		}		
 	}
 
-	if !isK8s {
+	if modeUsedForCollecting == SSH {
 		if sshArgs.SSHKeyLoc == "" {
 			return errors.New("the ssh private key location was empty, pass --ssh-key or -s with the key to get past this error. Example --ssh-key ~/.ssh/id_rsa")
 		}
