@@ -26,7 +26,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// kubernetes package provides access to log collections on k8s
+// docker package provides access to log collections on docker deployed environments
 package docker
 
 import (
@@ -45,11 +45,11 @@ func TestDockerExec(t *testing.T) {
 		StoredResponse: []string{"success"},
 		StoredErrors:   []error{nil},
 	}
-	k := DockerExecActions{
+	d := DockerExecActions{
 		cli:                  cli,
 		dockerPath:          "docker",
 	}
-	out, err := k.HostExecute(false, "",false, "ls", "-l")
+	out, err := d.HostExecute(false, "localdremioincontainer",false, "ls", "-l")
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}
@@ -61,7 +61,7 @@ func TestDockerExec(t *testing.T) {
 	if len(calls) != 1 {
 		t.Errorf("expected 1 call but got %v", len(calls))
 	}
-	expectedCall := []string{"docker", "exec", "dremio-executor", "--", "ls", "-l"}
+	expectedCall := []string{"docker", "exec","--user", "root", "localdremioincontainer", "ls", "-l"}
 	if !reflect.DeepEqual(calls[0], expectedCall) {
 		t.Errorf("\nexpected call\n%v\nbut got\n%v", expectedCall, calls[0])
 	}
@@ -69,51 +69,47 @@ func TestDockerExec(t *testing.T) {
 
 
 func TestDockerSearch(t *testing.T) {
-	namespace := "testns"
-	labelName := "myPods"
+	labelName := "executor"
 	cli := &tests.MockCli{
-		StoredResponse: []string{"pod/pod1\npod/pod2\npod/pod3\n"},
+		StoredResponse: []string{"localdremioincontainer-executor1\nlocaldremioincontainer-executor2\n"},
 		StoredErrors:   []error{nil},
 	}
-	k := DockerExecActions{
+	d := DockerExecActions{
 		cli:         cli,
-		dockerPath: "kubectl",
+		dockerPath: "docker",
 	}
-	podNames, err := k.FindHosts(labelName)
+	containerNames, err := d.FindHosts(labelName)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}
-	//we need to pass the namespace for later commands that may consume this
-	// period is handy because it is an illegal character in a kubernetes name and so
-	// can act as a separator
-	expectedPods := []string{"pod1", "pod2", "pod3"}
-	if !reflect.DeepEqual(podNames, expectedPods) {
-		t.Errorf("expected %v call but got %v", expectedPods, podNames)
+
+	expectedContainers := []string{"localdremioincontainer-executor1","localdremioincontainer-executor2"};
+	if !reflect.DeepEqual(containerNames, expectedContainers) {
+		t.Errorf("expected %v call but got %v", expectedContainers, containerNames)
 	}
 	calls := cli.Calls
 	if len(calls) != 1 {
 		t.Errorf("expected 1 call but got %v", len(calls))
 	}
-	expectedCall := []string{"kubectl", "get", "pods", "-n", namespace, "-l", labelName, "-o", "name"}
+	expectedCall := []string{"docker", "ps", "--filter", "name="+ labelName, "--format", "'{{.Names}}'"}
 	if !reflect.DeepEqual(calls[0], expectedCall) {
 		t.Errorf("\nexpected call\n%v\nbut got\n%v", expectedCall, calls[0])
 	}
 }
 
 func TestDockerCopyFrom(t *testing.T) {
-	namespace := "testns"
-	podName := "pod"
-	source := filepath.Join(string(filepath.Separator), "podroot", "test.log")
+	containerName := "localdremioincontainer"
+	source := filepath.Join(string(filepath.Separator), "containerroot", "test.log")
 	destination := filepath.Join(string(filepath.Separator), "mydir", "test.log")
 	cli := &tests.MockCli{
 		StoredResponse: []string{"success"},
 		StoredErrors:   []error{nil},
 	}
-	k := DockerExecActions{
+	d := DockerExecActions{
 		cli:                  cli,
-		dockerPath:          "kubectl",
+		dockerPath:          "docker",
 	}
-	out, err := k.CopyFromHost(podName, false, source, destination)
+	out, err := d.CopyFromHost(containerName, false, source, destination)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}
@@ -125,26 +121,25 @@ func TestDockerCopyFrom(t *testing.T) {
 	if len(calls) != 1 {
 		t.Errorf("expected 1 call but got %v", len(calls))
 	}
-	expectedCall := []string{"kubectl", "cp", "-n", namespace, "-c", "dremio-executor", fmt.Sprintf("%v:%v", podName, source), destination}
+	expectedCall := []string{"docker", "cp", fmt.Sprintf("%v:%v", containerName, source), destination}
 	if !reflect.DeepEqual(calls[0], expectedCall) {
 		t.Errorf("\nexpected call\n%v\nbut got\n%v", expectedCall, calls[0])
 	}
 }
 
-func TestKubectCopyFromWindowsHost(t *testing.T) {
-	namespace := "testns"
-	podName := "pod"
-	source := filepath.Join("podroot", "test.log")
+func TestDockerCopyFromWindowsHost(t *testing.T) {
+	containerName := "localdremioincontainer"
+	source := filepath.Join("containerroot", "test.log")
 	destination := filepath.Join("C:", string(filepath.Separator), "mydir", "test.log")
 	cli := &tests.MockCli{
 		StoredResponse: []string{"success"},
 		StoredErrors:   []error{nil},
 	}
-	k := DockerExecActions{
+	d := DockerExecActions{
 		cli:                  cli,
-		dockerPath:          "kubectl",
+		dockerPath:          "docker",
 	}
-	out, err := k.CopyFromHost(podName, false, source, destination)
+	out, err := d.CopyFromHost(containerName, false, source, destination)
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}
@@ -156,82 +151,13 @@ func TestKubectCopyFromWindowsHost(t *testing.T) {
 	if len(calls) != 1 {
 		t.Errorf("expected 1 call but got %v", len(calls))
 	}
-	//we remove the C: due to issue found in https://github.com/kubernetes/kubernetes/issues/77310"
-	expectedDestination := filepath.Join(string(filepath.Separator), "mydir", "test.log")
-	expectedCall := []string{"kubectl", "cp", "-n", namespace, "-c", "dremio-executor", fmt.Sprintf("%v:%v", podName, source), expectedDestination}
+
+	expectedDestination := filepath.Join("C:",string(filepath.Separator),"mydir", "test.log")
+	expectedCall := []string{"docker", "cp", fmt.Sprintf("%v:%v", containerName, source), expectedDestination}
 	if !reflect.DeepEqual(calls[0], expectedCall) {
 		t.Errorf("\nexpected call\n%v\nbut got\n%v", expectedCall, calls[0])
 	}
 }
 
 
-/*
-func TestNewKubectlK8sActions(t *testing.T) {
-	kubectlPath := "kubectlPath"
-	coordinatorContainer := "main"
-	executorContainer := "exec"
-	actions := NewDockerExecActions(DockerArgs{
-		DockerPath:          kubectlPath,
-	})
 
-	if actions.coordinatorContainer != coordinatorContainer {
-		t.Errorf("\nexpected \n%v\nbut got\n%v", coordinatorContainer, actions.coordinatorContainer)
-	}
-
-	if actions.executorContainer != executorContainer {
-		t.Errorf("\nexpected \n%v\nbut got\n%v", executorContainer, actions.executorContainer)
-	}
-}
-
-
-func TestGetContainerNameWhenIsMaster(t *testing.T) {
-	cli := &tests.MockCli{
-		StoredResponse: []string{"dremio-master-coordinator dremio-coordinator"},
-		StoredErrors:   []error{nil},
-	}
-	k := DockerExecActions{
-		cli:                  cli,
-		dockerPath:       	  "docker",
-		coordinatorContainer: "dremio-master-coordinator",
-		executorContainer:    "dremio-executor",
-	}
-	containerName := k.getContainerName(true)
-	if containerName != k.coordinatorContainer {
-		t.Errorf("\nexpected \n%v\nbut got\n%v", k.coordinatorContainer, containerName)
-	}
-}
-
-func TestGetContainerNameWhenIsCoordinator(t *testing.T) {
-	cli := &tests.MockCli{
-		StoredResponse: []string{"dremio-master-coordintor dremio-coordinator"},
-		StoredErrors:   []error{nil},
-	}
-	k := DockerExecActions{
-		cli:                  cli,
-		dockerPath:           "docker",
-		coordinatorContainer: "dremio-coordinator",
-		executorContainer:    "dremio-executor",
-	}
-	containerName := k.getContainerName(true)
-	if containerName != k.coordinatorContainer {
-		t.Errorf("\nexpected \n%v\nbut got\n%v", k.coordinatorContainer, containerName)
-	}
-}
-
-func TestGetContainerNameWhenIsExecutor(t *testing.T) {
-	cli := &tests.MockCli{
-		StoredResponse: []string{"dremio-executor"},
-		StoredErrors:   []error{nil},
-	}
-	k := DockerExecActions{
-		cli:                  cli,
-		dockerPath:           "docker",
-		coordinatorContainer: "dremio-coordinator",
-		executorContainer:    "dremio-executor",
-	}
-	containerName := k.getContainerName(false)
-	if containerName != k.executorContainer {
-		t.Errorf("\nexpected \n%v\nbut got\n%v", k.executorContainer, containerName)
-	}
-}
-*/

@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// kubernetes package provides access to log collections on k8s
+// docker package provides access to log collections on D4R
 package docker
 
 import (
 	"fmt"
-	//"strings"
+	"strings"
 
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/cli"
 )
@@ -27,7 +27,6 @@ type DockerArgs struct {
 }
 
 // NewDockerExecActions is the only supported way to initialize the DockerExecActions struct
-// one must pass the path to kubectl
 func NewDockerExecActions(dockerArgs DockerArgs) *DockerExecActions {
 	return &DockerExecActions{
 		cli:                  &cli.Cli{},
@@ -35,7 +34,7 @@ func NewDockerExecActions(dockerArgs DockerArgs) *DockerExecActions {
 	}
 }
 
-// DockerExecActions provides a way to collect and copy files using kubectl
+// DockerExecActions provides a way to collect and copy files using docker exec
 type DockerExecActions struct {
 	cli                  cli.CmdExecutor
 	dockerPath           string
@@ -79,31 +78,27 @@ func (c *DockerExecActions) CopyToHostSudo(hostString string, isCoordinator bool
 	return c.CopyToHost(hostString,isCoordinator,source,destination);
 }
 
-func (c *DockerExecActions) FindHosts(searchTerm string) (podName []string, err error) {
-	var pods []string
-	pods = append(pods, searchTerm)
-	return pods, nil
-	/*
-	out, err := c.cli.Execute(false, c.dockerPath, "ps", "--filter", "name="+ searchTerm)
+func (c *DockerExecActions) FindHosts(searchTerm string) (containerName []string, err error) {
+	out, err := c.cli.Execute(false, c.dockerPath, "ps", "--filter", "name="+ searchTerm, "--format", "'{{.Names}}'")
 	if err != nil {
 		return []string{}, err
 	}
-	rawPods := strings.Split(out, "\n")
-	var pods []string
-	for _, pod := range rawPods {
-		if pod == "" {
+	rawContainers := strings.Split(out, "\n")
+	// check for executor necessary, because name of coordinator was localdremioincontainer an executor was localdremioincontainer-executor, 
+	//so when you serach for coordinators you also got the executor
+	executor := strings.Contains(searchTerm,"executor");
+	var containers []string
+	for _, container := range rawContainers {
+		container = strings.Trim(container,"'");		
+		if container == ""  || (strings.Contains(container,"executor") != executor)   {
 			continue
 		}
-		rawPod := strings.TrimSpace(pod)
-		//log.Print(rawPod)
-		pod := rawPod[4:]
-		//log.Print(pod)
-		pods = append(pods, pod)
+		containers = append(containers, container)
 	}
-	return pods, nil
-	*/
+	return containers, nil
+	
 }
 
 func (c *DockerExecActions) HelpText() string {
-	return "Make sure the labels and namespace you use actually correspond to your dremio pods: try something like 'ddc -n mynamespace --coordinator app=dremio-coordinator --executor app=dremio-executor'.  You can also run 'kubectl get pods --show-labels' to see what labels are available to use for your dremio pods"
+	return "Make sure the labels and namespace you use actually correspond to your dremio containers: try something like 'ddc --mode docker --docker-path docker --coordinator localdremioincontainer --executors localdremioincontainer-executor'.  You can also run 'docker ps' to see what containers are available to use for your dremio containers";
 }

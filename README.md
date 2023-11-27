@@ -126,19 +126,23 @@ As of the today the following is collected
 The help is pretty straight forward and comes with examples, also do not forget to look at the ddc.yaml for all options.
 
 ```sh
-ddc connects via ssh or kubectl and collects a series of logs and files for dremio, then puts those collected files in an archive
+ddc connects via ssh, docker or kubectl and collects a series of logs and files for dremio, then puts those collected files in an archive
 examples:
 for ssh based communication to VMs or Bare metal hardware:
 
-        ddc --coordinator 10.0.0.19 --executors 10.0.0.20,10.0.0.21,10.0.0.22 --ssh-user myuser
+        ddc --mode ssh --coordinator 10.0.0.19 --executors 10.0.0.20,10.0.0.21,10.0.0.22 --ssh-user myuser
 
 for kubernetes deployments:
 
-        ddc --k8s --namespace mynamespace --coordinator app=dremio-coordinator --executors app=dremio-executor 
+        ddc --mode kubernetes --namespace mynamespace --coordinator app=dremio-coordinator --executors app=dremio-executor 
+
+for docker deployments
+
+	ddc --mode docker --docker-path docker --coordinator localdremioincontainer --executors localdremioincontainer-executor
 
 To sample job profiles and collect system tables information, kv reports, and Workload Manager Information add the --dremio-pat-prompt flag:
 
-        ddc --k8s -n mynamespace -c app=dremio-coordinator -e app=dremio-executor --dremio-pat-prompt
+        ddc --mode kubernetes -n mynamespace -c app=dremio-coordinator -e app=dremio-executor --dremio-pat-prompt
 
 Usage:
   ddc [flags]
@@ -152,13 +156,13 @@ Available Commands:
   version       Print the version number of DDC
 
 Flags:
-  -c, --coordinator string             coordinator to connect to for collection. With ssh set a list of ip addresses separated by commas. In K8s use a label that matches to the pod(s).
+  -c, --coordinator string             coordinator to connect to for collection. With ssh set a list of ip addresses separated by commas. In K8s use a label that matches to the pod(s). In docker use a label that matches the container(s) name
       --coordinator-container string   for use with -k8s flag: sets the container name to use to retrieve logs in the coordinators (default "dremio-master-coordinator")
   -t, --dremio-pat-prompt              Prompt for Dremio Personal Access Token (PAT)
-  -e, --executors string               either a common separated list or a ip range of executors nodes to connect to. With ssh set a list of ip addresses separated by commas. In K8s use a label that matches to the pod(s).
+  -e, --executors string               either a common separated list or a ip range of executors nodes to connect to. With ssh set a list of ip addresses separated by commas. In K8s use a label that matches to the pod(s). In docker use a label that matches the container(s) name
       --executors-container string     for use with -k8s flag: sets the container name to use to retrieve logs in the executors (default "dremio-executor")
   -h, --help                           help for ddc
-  -k, --k8s                            use kubernetes to retrieve the diagnostics instead of ssh, instead of hosts pass in labels to the --cordinator and --executors flags
+  -m, --mode                           defines mode use for collection, use "docker","d", "kubernetes","k" or "ssh","s" as parameter (default "ssh")
   -p, --kubectl-path string            where to find kubectl (default "kubectl")
   -n, --namespace string               namespace to use for kubernetes pods (default "default")
   -s, --ssh-key string                 location of ssh key to use to login
