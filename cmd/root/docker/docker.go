@@ -43,14 +43,14 @@ type DockerExecActions struct {
 
 
 func (c *DockerExecActions) HostExecuteAndStream(mask bool,hostString string, output cli.OutputHandler, isCoordinator bool, args ...string) (err error) {
-	dockerExecArgs := []string{c.dockerPath, "exec","--user", "root", hostString}
+	dockerExecArgs := []string{c.dockerPath, "exec", hostString}
 	dockerExecArgs = append(dockerExecArgs, args...)
 	return c.cli.ExecuteAndStreamOutput(mask, output, dockerExecArgs...)
 }
 
 
 func (c *DockerExecActions) HostExecute(mask bool,hostString string,isCoordinator bool, args ...string) (out string, err error) {
-	dockerExecArgs := []string{c.dockerPath, "exec","--user","root", hostString}
+	dockerExecArgs := []string{c.dockerPath, "exec", hostString}
 	dockerExecArgs = append(dockerExecArgs, args...)
 	return c.cli.Execute(mask, dockerExecArgs...)
 }
