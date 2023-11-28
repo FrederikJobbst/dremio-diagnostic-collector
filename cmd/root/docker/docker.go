@@ -69,7 +69,12 @@ func (c *DockerExecActions) CopyFromHostSudo(hostString string, isCoordinator bo
 
 func (c *DockerExecActions) CopyToHost(hostString string, isCoordinator bool, source, destination string) (out string, err error) {
 
-	return c.cli.Execute(false, c.dockerPath, "cp",source, fmt.Sprintf("%v:%v", hostString, destination))
+		
+	out, err = c.cli.Execute(false, c.dockerPath, "cp",source, fmt.Sprintf("%v:%v", hostString, destination))
+	if err != nil {
+		return out, err
+	}
+	return  c.cli.Execute(false,c.dockerPath,"exec","--user","root",hostString,"chown","dremio:dremio",destination)
 }
 
 func (c *DockerExecActions) CopyToHostSudo(hostString string, isCoordinator bool, _, source, destination string) (out string, err error) {
