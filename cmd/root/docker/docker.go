@@ -40,7 +40,9 @@ type DockerExecActions struct {
 	dockerPath           string
 }
 
-
+func (c *DockerExecActions) Name() string {
+	return "DockerExec"
+}
 
 func (c *DockerExecActions) HostExecuteAndStream(mask bool,hostString string, output cli.OutputHandler, isCoordinator bool, args ...string) (err error) {
 	dockerExecArgs := []string{c.dockerPath, "exec", hostString}
