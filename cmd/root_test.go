@@ -54,19 +54,6 @@ func TestValidateParameters(t *testing.T) {
 	}
 
 	tc = makeTestCollection()
-	tc.ExecutorsStr = ""
-	err = validateParameters(tc,
-		ssh.Args{
-			SSHKeyLoc: "/home/dremio/.ssh",
-			SSHUser:   "dremio",
-		},
-		K8S)
-	expectedError = "the executor string was empty you must pass a label that will match your executors --executor or -e arguments. Example: -e \"mylabel=executor\""
-	if expectedError != err.Error() {
-		t.Errorf("expected: %v but was %v", expectedError, err.Error())
-	}
-
-	tc = makeTestCollection()
 	err = validateParameters(tc, ssh.Args{
 		SSHKeyLoc: "",
 		SSHUser:   "dremio",
@@ -187,24 +174,16 @@ func TestValidateDDCYamlNotValid(t *testing.T) {
 }
 
 func TestValidateDDCYamlMaskPAT(t *testing.T) {
-	simplelog.InitLogger(3)
-	logLoc := simplelog.GetLogLoc()
-
-	err := simplelog.Close()
-	if err != nil {
-		t.Log(err)
-	}
-
-	err = os.Remove(logLoc)
-	if err != nil {
-		t.Fatalf("need to clean up file '%v': '%v'", logLoc, err)
-	}
-
-	simplelog.InitLogger(3)
-	logLoc = simplelog.GetLogLoc()
-
+	logLoc := filepath.Join(t.TempDir(), "test-ddc.log")
+	simplelog.InitLoggerWithFile(4, logLoc)
+	defer func() {
+		if err := simplelog.Close(); err != nil {
+			t.Logf("unable to close log file %v", err)
+		}
+		simplelog.InitLoggerWithFile(4, filepath.Join(os.TempDir(), "ddc.log"))
+	}()
 	valid := filepath.Join("testdata", "ddc-valid.yaml")
-	err = ValidateYaml(valid)
+	err := ValidateYaml(valid)
 	if err != nil {
 		t.Errorf("expected no error for valid yaml: %v", err)
 	}

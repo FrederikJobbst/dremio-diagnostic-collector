@@ -13,6 +13,24 @@ Download the [latest release binaries](https://github.com/dremio/dremio-diagnost
 3. change to the directory where you unzip your binary
 4. run the command `./ddc -h` if you get the help for the command you are good to go.
 
+
+#### Install on a Dremio Docker Image and run a local collect 
+
+If using the helm chart make sure you have `-Ddremio.log.path=/opt/dremio/data/log` set under extraStartParams see https://support.dremio.com/hc/en-us/articles/9972445087771-Tuning-and-Sizing-for-Dremio-in-Kubernetes
+
+```bash
+cd /tmp
+curl -o ddc-linux-amd64 -L https://github.com/dremio/dremio-diagnostic-collector/releases/download/v0.7.4/ddc-linux-amd64
+chmod +x ./ddc-linux-amd64
+curl -o ddc.yaml -L https://github.com/dremio/dremio-diagnostic-collector/releases/download/v0.7.4/ddc.yaml
+./ddc-linux-amd64 local-collect --tarball-out-dir /tmp
+```
+Read the last log line to see where the tarball went
+
+```bash
+INFO:  2023/11/27 10:11:59 local.go:389: Archive /tmp/ccfc31060d9a.tar.gz complete
+```
+
 ## User Docs
 
 Read the [Dremio Diagnostic Collector KB Article](https://support.dremio.com/hc/en-us/articles/15560006579739-Using-DDC-to-collect-files-for-Support-Tickets)

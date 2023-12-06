@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dremio/dremio-diagnostic-collector/cmd/awselogs"
 	local "github.com/dremio/dremio-diagnostic-collector/cmd/local"
@@ -31,6 +32,7 @@ import (
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/kubernetes"
 	"github.com/dremio/dremio-diagnostic-collector/cmd/root/ssh"
 	version "github.com/dremio/dremio-diagnostic-collector/cmd/version"
+	"github.com/dremio/dremio-diagnostic-collector/pkg/consoleprint"
 	"github.com/dremio/dremio-diagnostic-collector/pkg/masking"
 	"github.com/dremio/dremio-diagnostic-collector/pkg/simplelog"
 	"github.com/dremio/dremio-diagnostic-collector/pkg/versions"
@@ -93,28 +95,71 @@ var RootCmd = &cobra.Command{
 	Short: versions.GetCLIVersion() + " ddc connects via to dremio servers collects logs into an archive",
 	Long: versions.GetCLIVersion() + ` ddc connects via ssh, docker or kubectl and collects a series of logs and files for dremio, then puts those collected files in an archive
 examples:
+
 for ssh based communication to VMs or Bare metal hardware:
 
+	# coordinator only
+	ddc --mode ssh --coordinator 10.0.0.19 --ssh-user myuser
+	# coordinator and executors
 	ddc --mode ssh --coordinator 10.0.0.19 --executors 10.0.0.20,10.0.0.21,10.0.0.22 --ssh-user myuser
 
 for kubernetes deployments:
 
+	# coordinator only
+	ddc --mode kubernetes --namespace mynamespace --coordinator app=dremio-coordinator
+	# coordinator and executors
 	ddc --mode kubernetes --namespace mynamespace --coordinator app=dremio-coordinator --executors app=dremio-executor 
-
-for docker deployments
-
-	ddc --mode docker --docker-path docker --coordinator localdremioincontainer --executors localdremioincontainer-executor
 
 To sample job profiles and collect system tables information, kv reports, and Workload Manager Information add the --dremio-pat-prompt flag:
 
 	ddc --mode kubernetes -n mynamespace -c app=dremio-coordinator -e app=dremio-executor --dremio-pat-prompt
+
+for docker deployments
+	
+	# coordinator only
+	ddc --mode docker -docker-path docker --coordinator localdremioincontainer
+	# coordinator and executors
+	ddc --mode docker -docker-path docker --coordinator localdremioincontainer --executors localdremioincontainer-executor 
+
 `,
 	Run: func(c *cobra.Command, args []string) {
 
 	},
 }
 
+// startTicker starts a ticker that ticks every specified duration and returns
+// a function that can be called to stop the ticker.
+func startTicker() (stop func()) {
+	ticker := time.NewTicker(time.Second * 2)
+	quit := make(chan struct{})
+	consoleprint.PrintState()
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				// Action to be performed on each tick
+				consoleprint.PrintState()
+			case <-quit:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
+	return func() {
+		close(quit)
+	}
+}
+
 func RemoteCollect(collectionArgs collection.Args, sshArgs ssh.Args, kubeArgs kubernetes.KubeArgs, dockerArgs docker.DockerArgs, modeUsedForCollecting usedMode) error {
+	consoleprint.UpdateRuntime(
+		versions.GetCLIVersion(),
+		simplelog.GetLogLoc(),
+		collectionArgs.DDCYamlLoc,
+		"",
+		0,
+		0,
+	)
 	err := validateParameters(collectionArgs, sshArgs, modeUsedForCollecting)
 	if err != nil {
 		fmt.Println("COMMAND HELP TEXT:")
@@ -162,8 +207,7 @@ func RemoteCollect(collectionArgs collection.Args, sshArgs ssh.Args, kubeArgs ku
 		clusterCollect,
 	)
 	if err != nil {
-		simplelog.Errorf("unexpected error running collection '%v'", err)
-		os.Exit(1)
+		return err
 	}
 	return nil
 }
@@ -187,26 +231,25 @@ func ValidateYaml(ddcYaml string) error {
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute(args []string) {
+func Execute(args []string) error {
+
 	foundCmd, _, err := RootCmd.Find(args[1:])
 	// default cmd if no cmd is given
 	if err == nil && foundCmd.Use == RootCmd.Use && foundCmd.Flags().Parse(args[1:]) != pflag.ErrHelp {
+		stop := startTicker()
+		defer stop()
 		if sshKeyLoc == "" {
 			sshDefault, err := sshDefault()
 			if err != nil {
-				simplelog.Errorf("unexpected error getting ssh directory '%v'. This is a critical error and should result in a bug report.", err)
-				os.Exit(1)
+				return fmt.Errorf("unexpected error getting ssh directory '%v'. This is a critical error and should result in a bug report", err)
 			}
 			sshKeyLoc = sshDefault
 		}
-		simplelog.InitLogger(2)
-		simplelog.LogStartMessage()
 		dremioPAT := ""
 		if promptForDremioPAT {
 			pat, err := masking.PromptForPAT()
 			if err != nil {
-				fmt.Printf("unable to get PAT due to: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("unable to get PAT due to: %v", err)
 			}
 			dremioPAT = pat
 		}
@@ -214,8 +257,7 @@ func Execute(args []string) {
 		simplelog.Info(versions.GetCLIVersion())
 		simplelog.Infof("cli command: %v", strings.Join(args, " "))
 		if err := ValidateYaml(ddcYamlLoc); err != nil {
-			fmt.Printf("CRITICAL ERROR: unable to parse %v: %v\n", ddcYamlLoc, err)
-			os.Exit(1)
+			return fmt.Errorf("CRITICAL ERROR: unable to parse %v: %v", ddcYamlLoc, err)
 		}
 		collectionArgs := collection.Args{
 			CoordinatorStr: coordinatorStr,
@@ -232,8 +274,7 @@ func Execute(args []string) {
 			SSHUser:   sshUser,
 		}
 		kubeArgs := kubernetes.KubeArgs{
-			Namespace: namespace,
-			//ScaleoutCoordinatorContainer: scaleoutCoordinatorContainer,
+			Namespace:            namespace,
 			CoordinatorContainer: coordinatorContainer,
 			ExecutorsContainer:   executorsContainer,
 			KubectlPath:          kubectlPath,
@@ -242,15 +283,18 @@ func Execute(args []string) {
 			DockerPath: dockerPath,
 		}
 		if err := RemoteCollect(collectionArgs, sshArgs, kubeArgs, dockerArgs, ParseString(modeUsedForCollecting)); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			consoleprint.UpdateResult(err.Error())
+		} else {
+			consoleprint.UpdateResult(fmt.Sprintf("complete at %v", time.Now().Format(time.RFC1123)))
 		}
-		simplelog.LogEndMessage()
+		// we put the error in result so just return nil
+		consoleprint.PrintState()
+		return nil
 	}
 	if err := RootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
+	return nil
 }
 
 type unableToGetHomeDir struct {

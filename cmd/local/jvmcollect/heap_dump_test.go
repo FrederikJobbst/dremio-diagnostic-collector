@@ -63,10 +63,14 @@ func TestHeapDumpCapture(t *testing.T) {
 	}
 	nodeName := "node1"
 	ddcYamlString := fmt.Sprintf(`
+dremio-log-dir: %v
+dremio-conf-dir: %v
 tmp-output-dir: %v
 node-name: %v
 dremio-pid: %v
-`, strings.ReplaceAll(tmpOutDir, "\\", "\\\\"),
+`, filepath.Join("testdata", "logs"),
+		filepath.Join("testdata", "conf"),
+		strings.ReplaceAll(tmpOutDir, "\\", "\\\\"),
 		nodeName,
 		cmd.Process.Pid,
 	)

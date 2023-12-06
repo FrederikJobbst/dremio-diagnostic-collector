@@ -41,7 +41,7 @@ func TestLogger(t *testing.T) {
 	for _, tt := range tests {
 		buf := new(bytes.Buffer)
 
-		logger := newLogger(tt.level)
+		logger := newLogger()
 		logger.debugLogger.SetOutput(buf)
 		logger.infoLogger.SetOutput(buf)
 		logger.warningLogger.SetOutput(buf)
@@ -115,7 +115,7 @@ func TestLoggerMessageIsTruncated(t *testing.T) {
 	warnbuf := new(bytes.Buffer)
 	errbuf := new(bytes.Buffer)
 
-	logger := newLogger(LevelDebug)
+	logger := newLogger()
 	logger.debugLogger.SetOutput(dbbuf)
 	logger.infoLogger.SetOutput(infobuf)
 	logger.warningLogger.SetOutput(warnbuf)

@@ -30,26 +30,21 @@ import (
 )
 
 func TestJFRCapture(t *testing.T) {
+	logLoc := filepath.Join(t.TempDir(), "ddc.log")
+
+	simplelog.InitLoggerWithFile(4, logLoc)
 	jarLoc := filepath.Join("testdata", "demo.jar")
 	cmd := exec.Command("java", "-jar", "-Dmyflag=1", "-Xmx128M", jarLoc)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() failed with %s\n", err)
 	}
-	simplelog.InitLogger(3)
-	logLoc := simplelog.GetLogLoc()
-
-	err := simplelog.Close()
-	if err != nil {
-		t.Log(err)
-	}
-
-	err = os.Remove(logLoc)
-	if err != nil {
-		t.Fatalf("need to clean up file '%v': '%v'", logLoc, err)
-	}
-
-	simplelog.InitLogger(3)
-	logLoc = simplelog.GetLogLoc()
+	defer func() {
+		err := simplelog.Close()
+		if err != nil {
+			t.Log(err)
+		}
+		simplelog.InitLoggerWithFile(4, filepath.Join(os.TempDir(), "ddc.log"))
+	}()
 
 	defer func() {
 		//in windows we may need a bit more time to kill the process
@@ -77,12 +72,16 @@ func TestJFRCapture(t *testing.T) {
 	}
 	nodeName := "node1"
 	ddcYamlString := fmt.Sprintf(`
+dremio-log-dir: %v
+dremio-conf-dir: %v
 tmp-output-dir: %v
 node-name: %v
 dremio-pid: %v
 dremio-jfr-time-seconds: 2
-
-`, strings.ReplaceAll(tmpOutDir, "\\", "\\\\"),
+`,
+		filepath.Join("testdata", "logs"),
+		filepath.Join("testdata", "conf"),
+		strings.ReplaceAll(tmpOutDir, "\\", "\\\\"),
 		nodeName,
 		cmd.Process.Pid,
 	)
@@ -117,22 +116,16 @@ dremio-jfr-time-seconds: 2
 }
 
 func TestJFRCaptureWithExistingJFR(t *testing.T) {
-	simplelog.InitLogger(3)
-	logLoc := simplelog.GetLogLoc()
+	logLoc := filepath.Join(t.TempDir(), "ddc.log")
 
-	err := simplelog.Close()
-	if err != nil {
-		t.Log(err)
-	}
-
-	err = os.Remove(logLoc)
-	if err != nil {
-		t.Fatalf("need to clean up file '%v': '%v'", logLoc, err)
-	}
-
-	simplelog.InitLogger(3)
-	logLoc = simplelog.GetLogLoc()
-
+	simplelog.InitLoggerWithFile(4, logLoc)
+	defer func() {
+		err := simplelog.Close()
+		if err != nil {
+			t.Log(err)
+		}
+		simplelog.InitLoggerWithFile(4, filepath.Join(os.TempDir(), "ddc.log"))
+	}()
 	jarLoc := filepath.Join("testdata", "demo.jar")
 	cmd := exec.Command("java", "-jar", "-Dmyflag=1", "-Xmx128M", jarLoc)
 	if err := cmd.Start(); err != nil {
@@ -175,12 +168,17 @@ func TestJFRCaptureWithExistingJFR(t *testing.T) {
 	}
 
 	ddcYamlString := fmt.Sprintf(`
+dremio-log-dir: %v
+dremio-conf-dir: %v
 tmp-output-dir: %v
 node-name: %v
 dremio-pid: %v
 dremio-jfr-time-seconds: 2
 
-`, strings.ReplaceAll(tmpOutDir, "\\", "\\\\"),
+`,
+		filepath.Join("testdata", "logs"),
+		filepath.Join("testdata", "conf"),
+		strings.ReplaceAll(tmpOutDir, "\\", "\\\\"),
 		nodeName,
 		cmd.Process.Pid,
 	)
